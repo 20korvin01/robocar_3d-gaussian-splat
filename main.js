@@ -744,14 +744,14 @@ async function main() {
         carousel = false;
     } catch (err) {}
 
-    // Update the URL to point to 'robocar.splat' in the same directory
-    const url = 'robocar.splat';
+    // Default model URL
+    let currentModelUrl = 'robocar_1.splat';
 
-    const req = await fetch(url, {
-        mode: "cors", // no-cors, *cors, same-origin
-        credentials: "omit", // include, *same-origin, omit
+    // Load the initial model
+    const req = await fetch(currentModelUrl, {
+        mode: "cors",
+        credentials: "omit",
     });
-    console.log(req);
     if (req.status != 200)
         throw new Error(req.status + " Unable to load " + req.url);
 
@@ -774,6 +774,61 @@ async function main() {
     const canvas = document.getElementById("canvas");
     const fps = document.getElementById("fps");
     const camid = document.getElementById("camid");
+
+    // Add event listeners for the buttons
+    document.getElementById("attempt1").addEventListener("click", async () => {
+        currentModelUrl = 'robocar_1.splat';
+        await loadModel(currentModelUrl);
+    });
+
+    document.getElementById("attempt2").addEventListener("click", async () => {
+        currentModelUrl = 'robocar_2.splat';
+        await loadModel(currentModelUrl);
+    });
+
+    async function loadModel(url) {
+        const req = await fetch(url, {
+            mode: "cors",
+            credentials: "omit",
+        });
+        if (req.status != 200)
+            throw new Error(req.status + " Unable to load " + req.url);
+
+        const reader = req.body.getReader();
+        let splatData = new Uint8Array(req.headers.get("content-length"));
+
+        let bytesRead = 0;
+        let lastVertexCount = -1;
+        let stopLoading = false;
+
+        while (true) {
+            const { done, value } = await reader.read();
+            if (done || stopLoading) break;
+
+            splatData.set(value, bytesRead);
+            bytesRead += value.length;
+
+            if (vertexCount > lastVertexCount) {
+                if (!isPly(splatData)) {
+                    worker.postMessage({
+                        buffer: splatData.buffer,
+                        vertexCount: Math.floor(bytesRead / rowLength),
+                    });
+                }
+                lastVertexCount = vertexCount;
+            }
+        }
+        if (!stopLoading) {
+            if (isPly(splatData)) {
+                worker.postMessage({ ply: splatData.buffer, save: false });
+            } else {
+                worker.postMessage({
+                    buffer: splatData.buffer,
+                    vertexCount: Math.floor(bytesRead / rowLength),
+                });
+            }
+        }
+    }
 
     let projectionMatrix;
 
@@ -879,7 +934,6 @@ async function main() {
             }
         } else if (e.data.texdata) {
             const { texdata, texwidth, texheight } = e.data;
-            // console.log(texdata)
             gl.bindTexture(gl.TEXTURE_2D, texture);
             gl.texParameteri(
                 gl.TEXTURE_2D,
@@ -919,8 +973,6 @@ async function main() {
     let currentCameraIndex = 0;
 
     window.addEventListener("keydown", (e) => {
-        // if (document.activeElement != document.body) return;
-        carousel = false;
         if (!activeKeys.includes(e.code)) activeKeys.push(e.code);
         if (/\d/.test(e.key)) {
             currentCameraIndex = parseInt(e.key);
@@ -949,9 +1001,11 @@ async function main() {
             camid.innerText = "";
         }
     });
+
     window.addEventListener("keyup", (e) => {
         activeKeys = activeKeys.filter((k) => k !== e.code);
     });
+
     window.addEventListener("blur", () => {
         activeKeys = [];
     });
@@ -977,16 +1031,7 @@ async function main() {
                     0,
                 );
             } else if (e.ctrlKey || e.metaKey) {
-                // inv = rotate4(inv,  (e.deltaX * scale) / innerWidth,  0, 0, 1);
-                // inv = translate4(inv,  0, (e.deltaY * scale) / innerHeight, 0);
-                // let preY = inv[13];
-                inv = translate4(
-                    inv,
-                    0,
-                    0,
-                    (-10 * (e.deltaY * scale)) / innerHeight,
-                );
-                // inv[13] = preY;
+                inv = translate4(inv, 0, 0, 3 * (1 - scale));
             } else {
                 let d = 4;
                 inv = translate4(inv, 0, 0, d);
@@ -1008,6 +1053,7 @@ async function main() {
         startY = e.clientY;
         down = e.ctrlKey || e.metaKey ? 2 : 1;
     });
+
     canvas.addEventListener("contextmenu", (e) => {
         carousel = false;
         e.preventDefault();
@@ -1028,30 +1074,25 @@ async function main() {
             inv = rotate4(inv, dx, 0, 1, 0);
             inv = rotate4(inv, -dy, 1, 0, 0);
             inv = translate4(inv, 0, 0, -d);
-            // let postAngle = Math.atan2(inv[0], inv[10])
-            // inv = rotate4(inv, postAngle - preAngle, 0, 0, 1)
-            // console.log(postAngle)
             viewMatrix = invert4(inv);
 
             startX = e.clientX;
             startY = e.clientY;
         } else if (down == 2) {
             let inv = invert4(viewMatrix);
-            // inv = rotateY(inv, );
-            // let preY = inv[13];
             inv = translate4(
                 inv,
                 (-10 * (e.clientX - startX)) / innerWidth,
                 0,
                 (10 * (e.clientY - startY)) / innerHeight,
             );
-            // inv[13] = preY;
             viewMatrix = invert4(inv);
 
             startX = e.clientX;
             startY = e.clientY;
         }
     });
+
     canvas.addEventListener("mouseup", (e) => {
         e.preventDefault();
         down = false;
@@ -1071,7 +1112,6 @@ async function main() {
                 startY = e.touches[0].clientY;
                 down = 1;
             } else if (e.touches.length === 2) {
-                // console.log('beep')
                 carousel = false;
                 startX = e.touches[0].clientX;
                 altX = e.touches[1].clientX;
@@ -1082,6 +1122,7 @@ async function main() {
         },
         { passive: false },
     );
+
     canvas.addEventListener(
         "touchmove",
         (e) => {
@@ -1093,8 +1134,6 @@ async function main() {
 
                 let d = 4;
                 inv = translate4(inv, 0, 0, d);
-                // inv = translate4(inv,  -x, -y, -z);
-                // inv = translate4(inv,  x, y, z);
                 inv = rotate4(inv, dx, 0, 1, 0);
                 inv = rotate4(inv, -dy, 1, 0, 0);
                 inv = translate4(inv, 0, 0, -d);
@@ -1104,7 +1143,6 @@ async function main() {
                 startX = e.touches[0].clientX;
                 startY = e.touches[0].clientY;
             } else if (e.touches.length === 2) {
-                // alert('beep')
                 const dtheta =
                     Math.atan2(startY - altY, startX - altX) -
                     Math.atan2(
@@ -1128,14 +1166,11 @@ async function main() {
                         (startY + altY)) /
                     2;
                 let inv = invert4(viewMatrix);
-                // inv = translate4(inv,  0, 0, d);
                 inv = rotate4(inv, dtheta, 0, 0, 1);
 
                 inv = translate4(inv, -dx / innerWidth, -dy / innerHeight, 0);
 
-                // let preY = inv[13];
                 inv = translate4(inv, 0, 0, 3 * (1 - dscale));
-                // inv[13] = preY;
 
                 viewMatrix = invert4(inv);
 
@@ -1147,6 +1182,7 @@ async function main() {
         },
         { passive: false },
     );
+
     canvas.addEventListener(
         "touchend",
         (e) => {
@@ -1171,6 +1207,7 @@ async function main() {
             `Gamepad connected at index ${gp.index}: ${gp.id}. It has ${gp.buttons.length} buttons and ${gp.axes.length} axes.`,
         );
     });
+
     window.addEventListener("gamepaddisconnected", (e) => {
         console.log("Gamepad disconnected");
     });
@@ -1200,10 +1237,8 @@ async function main() {
         }
         if (activeKeys.includes("ArrowLeft"))
             inv = translate4(inv, -0.03, 0, 0);
-        //
         if (activeKeys.includes("ArrowRight"))
             inv = translate4(inv, 0.03, 0, 0);
-        // inv = rotate4(inv, 0.01, 0, 1, 0);
         if (activeKeys.includes("KeyA")) inv = rotate4(inv, -0.01, 0, 1, 0);
         if (activeKeys.includes("KeyD")) inv = rotate4(inv, 0.01, 0, 1, 0);
         if (activeKeys.includes("KeyQ")) inv = rotate4(inv, 0.01, 0, 0, 1);

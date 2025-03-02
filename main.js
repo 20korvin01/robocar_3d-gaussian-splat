@@ -745,7 +745,7 @@ async function main() {
     } catch (err) {}
 
     // Default model URL
-    let currentModelUrl = 'robocar_1.splat';
+    let currentModelUrl = 'robocar_3_cropped.splat';
 
     // Load the initial model
     const req = await fetch(currentModelUrl, {
@@ -788,6 +788,11 @@ async function main() {
 
     document.getElementById("attempt3").addEventListener("click", async () => {
         currentModelUrl = 'robocar_3.splat';
+        await loadModel(currentModelUrl);
+    });
+
+    document.getElementById("attempt4").addEventListener("click", async () => {
+        currentModelUrl = 'robocar_3_cropped.splat';
         await loadModel(currentModelUrl);
     });
 

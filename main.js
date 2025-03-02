@@ -786,6 +786,11 @@ async function main() {
         await loadModel(currentModelUrl);
     });
 
+    document.getElementById("attempt3").addEventListener("click", async () => {
+        currentModelUrl = 'robocar_3.splat';
+        await loadModel(currentModelUrl);
+    });
+
     async function loadModel(url) {
         const req = await fetch(url, {
             mode: "cors",
